@@ -312,8 +312,6 @@ func (vcenter *VCenter) Query(config Configuration, InfluxDBClient influxclient.
 			return
 		}
 		for _, pool := range respool {
-			stdlog.Println(pool.Config.MemoryAllocation.GetResourceAllocationInfo().Limit)
-			stdlog.Println(pool.Config.CpuAllocation.GetResourceAllocationInfo().Limit)
 			if debug == true {
 				stdlog.Println("---resourcepool name - you should see every resourcepool here (+VMs inside)----")
 				stdlog.Println(pool.Name)
@@ -604,7 +602,7 @@ func (vcenter *VCenter) Query(config Configuration, InfluxDBClient influxclient.
 		}
 
 		var respool []mo.ResourcePool
-		err = pc.Retrieve(ctx, respoolRefs, []string{"name", "config", "vm"}, &respool)
+		err = pc.Retrieve(ctx, respoolRefs, []string{"name", "config", "vm", "summary"}, &respool)
 		if err != nil {
 			errlog.Println(err)
 			continue
@@ -612,8 +610,29 @@ func (vcenter *VCenter) Query(config Configuration, InfluxDBClient influxclient.
 
 		for _, pool := range respool {
 			respoolFields := map[string]interface{}{
-				"cpu_limit":    pool.Config.CpuAllocation.GetResourceAllocationInfo().Limit,
-				"memory_limit": pool.Config.MemoryAllocation.GetResourceAllocationInfo().Limit,
+				"memory_limit":                     pool.Summary.GetResourcePoolSummary().Config.MemoryAllocation.GetResourceAllocationInfo().Limit,
+				"conf_memory_overhead_limit":       pool.Summary.GetResourcePoolSummary().Config.MemoryAllocation.GetResourceAllocationInfo().OverheadLimit,
+				"conf_memory_reservation":          pool.Summary.GetResourcePoolSummary().Config.MemoryAllocation.GetResourceAllocationInfo().Reservation,
+				"conf_memory_expandable_res_bool":  *pool.Summary.GetResourcePoolSummary().Config.MemoryAllocation.GetResourceAllocationInfo().ExpandableReservation,
+				"cpu_limit":                        pool.Summary.GetResourcePoolSummary().Config.CpuAllocation.GetResourceAllocationInfo().Limit,
+				"conf_cpu__overhead_limit":         pool.Summary.GetResourcePoolSummary().Config.CpuAllocation.GetResourceAllocationInfo().OverheadLimit,
+				"conf_cpu__reservation":            pool.Summary.GetResourcePoolSummary().Config.CpuAllocation.GetResourceAllocationInfo().Reservation,
+				"conf_cpu_expandable_res_bool":     *pool.Summary.GetResourcePoolSummary().Config.CpuAllocation.GetResourceAllocationInfo().ExpandableReservation,
+				"sum_balloonedMemory":              pool.Summary.GetResourcePoolSummary().QuickStats.BalloonedMemory,
+				"sum_compressedMemory":             pool.Summary.GetResourcePoolSummary().QuickStats.CompressedMemory,
+				"sum_consumedOverheadMemory":       pool.Summary.GetResourcePoolSummary().QuickStats.ConsumedOverheadMemory,
+				"sum_distributedCpuEntitlement":    pool.Summary.GetResourcePoolSummary().QuickStats.DistributedCpuEntitlement,
+				"sum_distributedMemoryEntitlement": pool.Summary.GetResourcePoolSummary().QuickStats.DistributedMemoryEntitlement,
+				"sum_guestMemoryUsage":             pool.Summary.GetResourcePoolSummary().QuickStats.GuestMemoryUsage,
+				"sum_hostMemoryUsage":              pool.Summary.GetResourcePoolSummary().QuickStats.HostMemoryUsage,
+				"sum_overallCpuDemand":             pool.Summary.GetResourcePoolSummary().QuickStats.OverallCpuDemand,
+				"sum_overallCpuUsage":              pool.Summary.GetResourcePoolSummary().QuickStats.OverallCpuUsage,
+				"sum_overheadMemory":               pool.Summary.GetResourcePoolSummary().QuickStats.OverheadMemory,
+				"sum_privateMemory":                pool.Summary.GetResourcePoolSummary().QuickStats.PrivateMemory,
+				"sum_sharedMemory":                 pool.Summary.GetResourcePoolSummary().QuickStats.SharedMemory,
+				"sum_staticCpuEntitlement":         pool.Summary.GetResourcePoolSummary().QuickStats.StaticCpuEntitlement,
+				"sum_staticMemoryEntitlement":      pool.Summary.GetResourcePoolSummary().QuickStats.StaticMemoryEntitlement,
+				"sum_swappedMemory":                pool.Summary.GetResourcePoolSummary().QuickStats.SwappedMemory,
 			}
 			respoolTags := map[string]string{"pool_name": pool.Name}
 			pt3, err := influxclient.NewPoint("resourcepool", respoolTags, respoolFields, time.Now())
@@ -624,6 +643,18 @@ func (vcenter *VCenter) Query(config Configuration, InfluxDBClient influxclient.
 			bp.AddPoint(pt3)
 		}
 
+		for _, vm := range vmmo {
+			storageFields := map[string]interface{}{
+				"storage_committed": vm.Summary.Storage.Committed,
+			}
+			storageTags := map[string]string{"vm_name": vm.Summary.Config.Name, "respool_name": vmToPool[vm.Self]}
+			pt4, err := influxclient.NewPoint("vm_storage", storageTags, storageFields, time.Now())
+			if err != nil {
+				errlog.Println(err)
+				continue
+			}
+			bp.AddPoint(pt4)
+		}
 	}
 
 	//InfluxDB send
